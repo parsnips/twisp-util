@@ -50,13 +50,7 @@ A set of tools to work with Twisp local. In `/cmd/restore` you can backup a raw 
 
 usage:
 ```bash
-./restore -endpoint http://localhost:8082/ -file ~/tmp/backup.jsonl
+./restore -endpoint http://localhost:8082/ -from-twisp-account 000000000000 -to-twisp-account test -file ~/tmp/backup.jsonl
 ```
 
-will restore the backup into the default account `000000000000`...
-
-to backup into an alternate account use the `-account <account name>` argument:  
-
-```bash
-./restore -endpoint http://localhost:8082/ -account test123 -file ~/tmp/backup.jsonl
-```
+will restore the backup into the default account `000000000000` into the account `test`

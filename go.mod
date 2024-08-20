@@ -3,6 +3,7 @@ module github.com/parsnips/twisp-util
 go 1.21.3
 
 require (
+	buf.build/gen/go/twisp/api/protocolbuffers/go v1.34.2-20240710155351-22641f0adbd5.2
 	github.com/aws/aws-lambda-go v1.47.0
 	github.com/aws/aws-sdk-go v1.55.5
 	github.com/aws/aws-sdk-go-v2 v1.30.3
@@ -25,4 +26,5 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sts v1.30.3 // indirect
 	github.com/aws/smithy-go v1.20.3 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
+	google.golang.org/protobuf v1.34.2 // indirect
 )

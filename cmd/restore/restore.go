@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"flag"
@@ -10,6 +11,8 @@ import (
 	"runtime"
 	"sync"
 
+	corev1 "buf.build/gen/go/twisp/api/protocolbuffers/go/twisp/core/v1"
+	typev1 "buf.build/gen/go/twisp/api/protocolbuffers/go/twisp/type/v1"
 	"github.com/aws/aws-sdk-go-v2/aws/arn"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
@@ -18,6 +21,7 @@ import (
 	dynamodbv1 "github.com/aws/aws-sdk-go/service/dynamodb"
 	"github.com/google/uuid"
 	"github.com/parsnips/twisp-util/pkg/util"
+	"google.golang.org/protobuf/proto"
 )
 
 var (
@@ -41,8 +45,10 @@ const (
 )
 
 func main() {
-	twispAccount := flag.String("twisp-account", defaultAccount, "The x-twisp-account-id you want the tenant for. If unset not changed from backup file.")
-	region := flag.String("region", defaultRegion, "The region you want tenant set for.")
+	fromTwispAccount := flag.String("from-twisp-account", defaultAccount, "the x-twisp-account-id you want to restore from.")
+	fromRegion := flag.String("from-region", defaultRegion, "The region you want to restore to.")
+	toTwispAccount := flag.String("to-twisp-account", defaultAccount, "The x-twisp-account-id you want to restore to..")
+	toRegion := flag.String("to-region", defaultRegion, "The region you want to restore to.")
 	file := flag.String("file", "backup.jsonl", `the backup file to restore from. A jsonl file of dynamodb json {"Item":{}}`)
 	table = flag.String("table", "0a5ccc1d-7ac0-4efb-818b-d845b3a82165", "The dynamodb table to write to.")
 	endpoint = flag.String("endpoint", "", "Optional endpoint to set the dynamodb client to.")
@@ -64,26 +70,58 @@ func main() {
 		handleErr(err)
 	}
 	defer f.Close()
-
-	// Compute the tenantId
 	accountUUIDSpace := uuid.MustParse("0cf49e6e-ec7e-4c81-b7ba-a984b8db762a")
-	theArn := arn.ARN{
+	journalTableId := uuid.MustParse("9233c407-a3ab-4277-9813-ddd40582bfcd")
+
+	// From tenant
+	fromArn := arn.ARN{
 		Partition: "twisp",
 		Service:   "database",
-		Region:    *region,
-		AccountID: *twispAccount,
+		Region:    *fromRegion,
+		AccountID: *fromTwispAccount,
 	}
-	tenantId := uuid.NewSHA1(
+	fromTenantId := uuid.NewSHA1(
 		accountUUIDSpace,
-		[]byte(theArn.String()),
+		[]byte(fromArn.String()),
 	)
 
-	// function to change the tenantId if region or account is different
-	changeTenant := func(raw RawData) {
-		if *twispAccount != defaultAccount || *region != defaultRegion {
-			if len(raw.Item["a"].B) > 16 {
-				copy(raw.Item["a"].B[:16], tenantId[:16])
+	// To tenant
+	toArn := arn.ARN{
+		Partition: "twisp",
+		Service:   "database",
+		Region:    *toRegion,
+		AccountID: *toTwispAccount,
+	}
+	toTenantId := uuid.NewSHA1(
+		accountUUIDSpace,
+		[]byte(toArn.String()),
+	)
+
+	zedUUID := &typev1.UUID{}
+
+	isDefaultJournalRecord := func(raw RawData) bool {
+		if item, ok := raw.Item["t"]; ok && bytes.Equal(item.B[:], journalTableId[:]) {
+			var journal corev1.Journal
+			if err := proto.Unmarshal(raw.Item["g"].B, &journal); err != nil {
+				handleErr(err)
 			}
+			return proto.Equal(zedUUID, journal.JournalId)
+		}
+
+		return false
+	}
+
+	// Filter if from tenant
+	isFromTenant := func(raw RawData) bool {
+		item, ok := raw.Item["a"]
+		return ok && len(item.B) > 16 && bytes.Equal(item.B[:16], fromTenantId[:])
+	}
+
+	// function to change the tenantId if region or account is different
+	convertIntoToTenant := func(raw RawData) {
+		item, ok := raw.Item["a"]
+		if ok && len(item.B) > 16 {
+			copy(raw.Item["a"].B[:16], toTenantId[:])
 		}
 	}
 
@@ -127,8 +165,14 @@ func main() {
 			if err := json.Unmarshal(scanner.Bytes(), &raw); err != nil {
 				handleErr(err)
 			}
-			changeTenant(raw)
-			requests <- raw
+			if isFromTenant(raw) {
+				if isDefaultJournalRecord(raw) {
+					// TODO: Note rowID and remove index records with this row id
+					continue
+				}
+				convertIntoToTenant(raw)
+				requests <- raw
+			}
 		}
 		close(done)
 	}()
