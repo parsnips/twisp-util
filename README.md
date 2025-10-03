@@ -46,7 +46,9 @@ example:
 
 ## cmd/restore
 
-A set of tools to work with Twisp local. In `/cmd/restore` you can backup a raw ndjson dynamo file into a running twisp instance:
+In `/cmd/restore` you can backup a raw ndjson dynamo file into a running twisp instance:
+
+To build, `go build ./cmd/restore/...` and copy the `restore` program to somewhere on your `PATH`.
 
 usage:
 ```bash
